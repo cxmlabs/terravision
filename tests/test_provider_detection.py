@@ -170,8 +170,8 @@ class TestDetectProviders:
         assert result["resource_counts"]["aws"] == 1
         assert result["confidence"] < 0.5
 
-    def test_detect_only_unknown_resources_raises_error(self):
-        """Test that project with only unknown resources raises error."""
+    def test_detect_only_unknown_resources_returns_unsupported(self):
+        """Test that project with only unknown resources returns 'unsupported' gracefully."""
         tfdata = {
             "all_resource": [
                 "random_string.id",
@@ -180,10 +180,39 @@ class TestDetectProviders:
             ]
         }
 
-        with pytest.raises(ProviderDetectionError) as exc_info:
-            detect_providers(tfdata)
+        result = detect_providers(tfdata)
+        assert result["primary_provider"] == "unsupported"
+        assert result["confidence"] == 0.0
+        assert "unknown" in result["resource_counts"]
 
-        assert "Could not detect any supported cloud providers" in str(exc_info.value)
+    def test_detect_non_cloud_providers_returns_unsupported(self):
+        """Test that project with github/sentry resources degrades gracefully."""
+        tfdata = {
+            "all_resource": [
+                "github_repository.repo",
+                "github_branch_protection.main",
+                "github_actions_secret.token",
+            ]
+        }
+
+        result = detect_providers(tfdata)
+        assert result["primary_provider"] == "unsupported"
+        assert result["confidence"] == 0.0
+        # Non-cloud providers should be listed (as 'unknown' since github_ is not in PROVIDER_PREFIXES)
+        assert result["providers"]
+
+    def test_detect_sentry_provider_returns_unsupported(self):
+        """Test that sentry-only project returns unsupported."""
+        tfdata = {
+            "all_resource": [
+                "sentry_project.web",
+                "sentry_key.web_key",
+            ]
+        }
+
+        result = detect_providers(tfdata)
+        assert result["primary_provider"] == "unsupported"
+        assert result["confidence"] == 0.0
 
     def test_detect_invalid_tfdata_raises_error(self):
         """Test that invalid tfdata raises ValueError."""
@@ -348,6 +377,24 @@ class TestHelperFunctions:
 
         with pytest.raises(ProviderDetectionError):
             get_primary_provider_or_default(tfdata)
+
+    def test_get_primary_provider_or_default_unsupported(self):
+        """Test that non-cloud providers return 'unsupported' instead of raising."""
+        tfdata = {"all_resource": ["github_repository.repo", "github_actions_secret.token"]}
+
+        result = get_primary_provider_or_default(tfdata)
+        assert result == "unsupported"
+
+    def test_get_primary_provider_or_default_unsupported_from_cache(self):
+        """Test that cached unsupported detection result is returned."""
+        tfdata = {
+            "provider_detection": {
+                "providers": ["unknown"],
+                "primary_provider": "unsupported",
+            }
+        }
+
+        assert get_primary_provider_or_default(tfdata) == "unsupported"
 
 
 class TestConstants:

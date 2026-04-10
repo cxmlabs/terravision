@@ -7,9 +7,13 @@ output into internal data structures for diagram generation.
 from typing import Dict, List, Tuple, Any
 import os
 import copy
+import logging
 from pathlib import Path
+import shutil
 import subprocess
 import click
+
+logger = logging.getLogger(__name__)
 import modules.gitlibs as gitlibs
 import modules.helpers as helpers
 import modules.fileparser as fileparser
@@ -47,6 +51,18 @@ def convert_dot_to_json(dot_file: str) -> dict:
     Returns:
         Parsed JSON dictionary of the graph data.
     """
+    # Check if dot binary is available
+    if shutil.which("dot") is None:
+        click.echo(
+            click.style(
+                "\n  ERROR: Converting DOT to JSON requires system Graphviz to be installed.\n"
+                "  Install Graphviz from https://graphviz.org/download/",
+                fg="red",
+                bold=True,
+            )
+        )
+        exit(1)
+    
     json_file = tempfile.NamedTemporaryFile(suffix=".json", delete=False).name
     try:
         result = subprocess.run(
@@ -324,10 +340,11 @@ def _detect_provider(tfdata):
             detected_provider = max(provider_counts, key=provider_counts.get)
 
     if not detected_provider:
-        raise provider_detector.ProviderDetectionError(
+        logger.warning(
             "Could not detect cloud provider from Terraform plan. "
-            "Ensure your Terraform code contains cloud resources (aws_, azurerm_, google_, etc.)"
+            "No cloud resources (aws_, azurerm_, google_) found — returning 'unsupported'."
         )
+        return "unsupported"
     return detected_provider
 
 

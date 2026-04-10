@@ -116,14 +116,14 @@ def detect_providers(tfdata: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Dict[str, Any] dictionary containing:
             - providers (List[str]): List of detected providers
-            - primary_provider (str): Provider with most resources
+            - primary_provider (str): Provider with most resources ('unsupported' if no cloud provider found)
             - resource_counts (Dict[str, int]): Resource count per provider
             - detection_method (str): How providers were detected
             - confidence (float): Detection confidence (0.0 to 1.0)
 
     Raises:
         ValueError: If tfdata missing required keys
-        ProviderDetectionError: If no providers can be detected
+        ProviderDetectionError: If no resources found at all
 
     Examples:
         >>> tfdata = {"all_resource": ["aws_instance.web", "aws_s3_bucket.data"]}
@@ -164,13 +164,21 @@ def detect_providers(tfdata: Dict[str, Any]) -> Dict[str, Any]:
     ]
 
     if not known_providers:
-        logger.error(
-            f"No supported providers detected in {len(all_resources)} resources"
+        # Graceful degradation: resources exist but none are from supported cloud providers
+        # (e.g. github_*, sentry_*, datadog_*, etc.)
+        non_cloud_providers = [p for p in resource_counts.keys() if p != "unknown"]
+        logger.warning(
+            f"No supported cloud providers detected in {len(resource_names)} resources. "
+            f"Found non-cloud providers: {non_cloud_providers}. "
+            f"Returning 'unsupported' — diagram generation will be skipped."
         )
-        raise ProviderDetectionError(
-            f"Could not detect any supported cloud providers in Terraform project. "
-            f"Found {len(all_resources)} resources but none matched known provider prefixes."
-        )
+        return {
+            "providers": non_cloud_providers or ["unknown"],
+            "primary_provider": "unsupported",
+            "resource_counts": resource_counts,
+            "detection_method": "resource_prefix_analysis",
+            "confidence": 0.0,
+        }
 
     # Determine primary provider (most resources)
     primary_provider = max(known_providers, key=lambda p: resource_counts.get(p, 0))
@@ -253,8 +261,8 @@ def validate_provider_detection(result: Dict[str, Any], tfdata: Dict[str, Any]) 
         True if validation passes, False otherwise
 
     Validation Checks:
-        1. All providers in result are valid
-        2. primary_provider is in providers list
+        1. All providers in result are valid (or 'unsupported' for non-cloud providers)
+        2. primary_provider is in providers list (or 'unsupported')
         3. Sum of resource_counts matches total resources
         4. Confidence is between 0.0 and 1.0
         5. At least one provider detected
@@ -272,6 +280,12 @@ def validate_provider_detection(result: Dict[str, Any], tfdata: Dict[str, Any]) 
         True
     """
     try:
+        # Unsupported providers are valid results — skip strict validation
+        primary_provider = result.get("primary_provider")
+        if primary_provider == "unsupported":
+            logger.info("Provider detection returned 'unsupported' — validation skipped (non-cloud resources)")
+            return True
+
         # Check 1: All providers are valid
         providers = result.get("providers", [])
         for provider in providers:
@@ -287,7 +301,6 @@ def validate_provider_detection(result: Dict[str, Any], tfdata: Dict[str, Any]) 
             return False
 
         # Check 3: primary_provider is in providers list
-        primary_provider = result.get("primary_provider")
         if primary_provider not in providers:
             logger.warning(
                 f"Validation failed: Primary provider '{primary_provider}' "
@@ -341,20 +354,21 @@ def validate_provider_detection(result: Dict[str, Any], tfdata: Dict[str, Any]) 
 
 def get_primary_provider_or_default(tfdata: Dict[str, Any]) -> str:
     """
-    Get primary provider from tfdata or raise error if not detectable.
+    Get primary provider from tfdata, returning 'unsupported' for non-cloud providers.
 
     Args:
         tfdata: Terraform data (may or may not have provider_detection)
 
     Returns:
-        Primary provider name ('aws' | 'azure' | 'gcp')
+        Primary provider name ('aws' | 'azure' | 'gcp' | 'unsupported')
 
     Raises:
-        ProviderDetectionError: If provider cannot be detected
+        ProviderDetectionError: If provider detection completely fails (no resources at all)
 
     Note:
-        This function NO LONGER defaults to AWS. If provider detection hasn't
-        run or fails, it will raise an error. This prevents incorrect assumptions.
+        Returns 'unsupported' for Terraform projects that only use non-cloud providers
+        (e.g. github, sentry, datadog). Callers should check for 'unsupported' and
+        skip provider-specific logic accordingly.
     """
     if "provider_detection" in tfdata:
         return tfdata["provider_detection"]["primary_provider"]

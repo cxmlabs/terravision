@@ -22,12 +22,13 @@ dependencies = [
     "ollama>=0.6.1",
     "requests>=2.32.3", 
     "typing-extensions>=4.0.0",
-    "tomli>=2.0.1",
-    "graphviz2drawio>=1.1.0; sys_platform == 'linux'"
+    "tomli>=2.0.1"
 ]
 
 [project.optional-dependencies]
 drawio = ["graphviz2drawio>=1.1.0"]
+graphviz = ["graphviz2drawio>=1.1.0"]
+
 
 [project.scripts]
 terravision = "terravision.terravision:main"
@@ -68,6 +69,8 @@ ollama = "^0.6.1"
 requests = ">=2.32.3"
 typing-extensions = "^4.0.0"
 tomli = "^2.0.1"
+
+[tool.poetry.group.graphviz.dependencies]
 graphviz2drawio = "^1.0.0"
 
 [tool.poetry.scripts]

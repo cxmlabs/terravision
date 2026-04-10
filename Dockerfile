@@ -2,7 +2,9 @@ FROM alpine:3.23 AS base
 
 ARG TARGETARCH
 
-# Install required packages (graphviz-dev needed for pygraphviz/graphviz2drawio)
+# Install required packages
+# Note: graphviz is optional for non-Docker installs, but included here for full functionality
+# graphviz-dev needed for pygraphviz/graphviz2drawio
 RUN apk update && \
     apk add --no-cache git python3 py3-pip graphviz graphviz-dev gcc musl-dev python3-dev binutils curl unzip bash jq && \
     rm /usr/lib/python*/EXTERNALLY-MANAGED && \

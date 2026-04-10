@@ -1678,7 +1678,7 @@ def safe_remove_connection(
 
 def check_dependencies() -> None:
     """Check if required command-line tools are available."""
-    dependencies = ["dot", "gvpr", "git", "terraform"]
+    dependencies = ["git", "terraform"]
     bundle_dir = Path(__file__).parent
     import sys
 
@@ -1696,6 +1696,31 @@ def check_dependencies() -> None:
                 )
             )
             exit()
+
+
+def check_graphviz_binaries() -> bool:
+    """Check if Graphviz command-line tools are available.
+    
+    Returns:
+        True if both dot and gvpr are available, False otherwise.
+    """
+    dot_available = shutil.which("dot") is not None
+    gvpr_available = shutil.which("gvpr") is not None
+    return dot_available and gvpr_available
+
+
+def require_graphviz_binaries() -> None:
+    """Require Graphviz binaries to be installed, exit with message if not."""
+    if not check_graphviz_binaries():
+        click.echo(
+            click.style(
+                "\n  ERROR: Rendered output formats (png, svg, pdf, etc.) require system Graphviz to be installed.\n"
+                "  Install Graphviz from https://graphviz.org/download/ or use --format dot for DOT output only.",
+                fg="red",
+                bold=True,
+            )
+        )
+        exit(1)
 
 
 def check_terraform_version() -> None:

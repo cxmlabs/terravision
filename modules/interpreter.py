@@ -144,10 +144,12 @@ def handle_metadata_vars(tfdata: Dict[str, Any]) -> Dict[str, Any]:
         Updated tfdata with resolved metadata variables
     """
     # Loop through each resource's metadata attributes
+    max_resolve_iterations = 15
     for resource, attr_list in tfdata["meta_data"].items():
         for key, orig_value in attr_list.items():
             value = str(orig_value)
             # Iteratively resolve all variable references
+            resolve_iterations = 0
             while (
                 (
                     "var." in value
@@ -161,6 +163,15 @@ def handle_metadata_vars(tfdata: Dict[str, Any]) -> Dict[str, Any]:
                 and key != "depends_on"
                 and key != "original_count"
             ):
+                resolve_iterations += 1
+                if resolve_iterations > max_resolve_iterations:
+                    click.echo(
+                        click.style(
+                            f"   WARNING: Gave up resolving {resource}.{key} after {max_resolve_iterations} iterations",
+                            fg="yellow",
+                        )
+                    )
+                    break
                 mod = attr_list["module"]
                 old_value = value
                 value = find_replace_values(value, mod, tfdata)
@@ -284,6 +295,9 @@ def replace_module_vars(
             outputname = helpers.find_between(cleantext, splitlist[1] + ".", " ")
             oldvalue = value
             mod = value.split("module.")[1].split(".")[0]
+            # Early exit: skip if module has no outputs registered
+            if not any(f";{mod};" in ofile for ofile in tfdata["all_output"]):
+                continue
             # Search through output files for matching module
             for ofile in tfdata["all_output"].keys():
                 if helpers.output_file_matches_module(ofile, mod, tfdata):
@@ -484,9 +498,9 @@ def find_replace_values(
         String with all variables resolved
     """
     # Check for infinite loop - prevent excessive recursion
-    if recursion_depth >= 50:
+    if recursion_depth >= 15:
         click.echo(
-            f"   WARNING: Cannot resolve variable after 50 iterations: {varstring}"
+            f"   WARNING: Cannot resolve variable after 15 iterations: {varstring}"
         )
         return "UNKNOWN"
 
