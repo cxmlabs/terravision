@@ -18,8 +18,11 @@ from typing import Dict, List, Tuple, Any, Optional
 import click
 import yaml
 import hcl2
+from hcl2.utils import SerializationOptions
 
 import modules.gitlibs as gitlibs
+
+_HCL2_OPTS = SerializationOptions(strip_string_quotes=True)
 
 # Global module-level variables
 annotations: Dict[str, Any] = dict()
@@ -288,13 +291,13 @@ def iterative_parse(
         # Attempt to parse HCL2 content
         with click.open_file(filename, "r", encoding="utf8") as f:
             try:
-                hcl_dict[filename] = hcl2.load(f)
+                hcl_dict[filename] = hcl2.load(f, serialization_options=_HCL2_OPTS)
             except Exception:
                 # Retry with preprocessed content to fix known parser limitations
                 try:
                     f.seek(0)
                     preprocessed = _preprocess_hcl(f.read())
-                    hcl_dict[filename] = hcl2.load(io.StringIO(preprocessed))
+                    hcl_dict[filename] = hcl2.load(io.StringIO(preprocessed), serialization_options=_HCL2_OPTS)
                 except Exception as error:
                     print("A Terraform HCL parsing error occurred:", filename, error)
                     continue

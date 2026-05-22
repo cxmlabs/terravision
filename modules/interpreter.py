@@ -7,9 +7,12 @@ Processes resource metadata and manages variable substitution across modules.
 from typing import Dict, List, Any, Tuple
 import modules.helpers as helpers
 import hcl2
+from hcl2.utils import SerializationOptions
 import click
 import re
 from pathlib import Path
+
+_HCL2_OPTS = SerializationOptions(strip_string_quotes=True)
 
 # "data.aws_availability_zones": ["AZ1", "AZ2", "AZ3"],
 DATA_REPLACEMENTS = {
@@ -850,7 +853,7 @@ def get_variable_values(
     if tfdata.get("all_variable") and not already_processed:
         for varfile in tfdata["varfile_list"]:
             with click.open_file(varfile, encoding="utf8", mode="r") as f:
-                variable_values = hcl2.load(f)
+                variable_values = hcl2.load(f, serialization_options=_HCL2_OPTS)
             # Apply user-supplied values
             for uservar in variable_values:
                 var_data[uservar.lower()] = variable_values[uservar]

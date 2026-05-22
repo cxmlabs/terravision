@@ -14,8 +14,11 @@ from typing import Any, Dict, List, Tuple
 
 import click
 import hcl2
+from hcl2.utils import SerializationOptions
 
 import modules.tfwrapper as tfwrapper
+
+_HCL2_OPTS = SerializationOptions(strip_string_quotes=True)
 
 MIN_TERRAGRUNT_VERSION = "0.50.0"
 
@@ -196,7 +199,7 @@ def _scan_dependency_dirs(module_path: str) -> List[str]:
 
     try:
         with open(hcl_path) as f:
-            parsed = hcl2.load(f)
+            parsed = hcl2.load(f, serialization_options=_HCL2_OPTS)
     except Exception:
         return dep_dirs
 
@@ -513,7 +516,7 @@ def _parse_tg_dependencies(module_path: str) -> dict:
 
     try:
         with open(hcl_path) as f:
-            parsed = hcl2.load(f)
+            parsed = hcl2.load(f, serialization_options=_HCL2_OPTS)
     except Exception:
         return result
 
