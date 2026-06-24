@@ -47,6 +47,34 @@ EXTRACT: List[str] = [
 ]
 
 
+def _default_max_module_depth() -> int:
+    """Resolve the default transitive module-resolution depth cap.
+
+    Module sources are resolved recursively (each cloned module may declare
+    further nested modules). Large community modules (e.g. the EKS module and
+    its ~20+ nested submodules) can otherwise exhaust the per-root time budget
+    enforced by callers, producing zero resources for the whole root. Capping
+    the depth bounds this work. Override via TERRAVISION_MAX_MODULE_DEPTH.
+
+    The default of 5 targets ~95% coverage of real client repos: the effective
+    call depth is roughly "first-party wrapper layers (0-2) + the internal depth
+    of a deep community module (EKS bottoms out at 3 from a direct reference)".
+    Depth 5 clears one to two wrapper layers over such a module while staying out
+    of the 6+ tail (generated/pathological trees), where fan-out cost explodes
+    for no additional coverage.
+    """
+    raw = os.environ.get("TERRAVISION_MAX_MODULE_DEPTH", "")
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return 5
+    return value if value >= 0 else 5
+
+
+# Default cap on transitive (nested) module resolution depth (CLO-5901).
+MAX_MODULE_DEPTH: int = _default_max_module_depth()
+
+
 def _load_terraform_modules_json(source_dir: str) -> Dict[str, str]:
     """Load Terraform's modules.json and return module key to directory mapping.
 
@@ -245,11 +273,18 @@ def iterative_parse(
     tfdata: Dict[str, Any],
     tf_mod_dir: str,
     source_dir: str = "",
+    max_module_depth: int = MAX_MODULE_DEPTH,
 ) -> Dict[str, Any]:
     """Parse Terraform files and extract resources, modules, and variables.
 
     Iteratively processes each Terraform file, parsing HCL2 syntax and extracting
     specified sections. Handles parsing errors and discovers nested modules.
+
+    Nested modules are resolved breadth-first: the files discovered for a module
+    are appended to ``tf_file_paths`` and parsed in turn. ``max_module_depth``
+    bounds this transitive resolution (root files are depth 0, the modules they
+    declare are depth 1, and so on); once a file is at the cap its module stanzas
+    are still recorded but their sources are no longer cloned or descended into.
 
     Args:
         tf_file_paths: List of Terraform file paths to parse
@@ -258,11 +293,19 @@ def iterative_parse(
         tfdata: Main data dictionary to populate with parsed content
         tf_mod_dir: Directory containing Terraform modules
         source_dir: Root source directory (for .terraform/modules/modules.json lookup)
+        max_module_depth: Maximum nested-module resolution depth (default
+            MAX_MODULE_DEPTH). 0 disables transitive resolution entirely.
 
     Returns:
         Updated tfdata dictionary with parsed content
     """
     tfdata["module_source_dict"] = dict()
+
+    # Track each file's module-resolution depth so transitive resolution can be
+    # capped (CLO-5901). Root files start at depth 0; files discovered inside a
+    # module stanza inherit their parent's depth + 1.
+    file_depths: Dict[str, int] = {path: 0 for path in tf_file_paths}
+    depth_cap_reached = False
 
     # Load Terraform's modules.json for local module resolution (issue #168)
     # Check terraform init working directory first (temp dir where init ran),
@@ -281,6 +324,7 @@ def iterative_parse(
 
     # Parse each Terraform file
     for filename in tf_file_paths:
+        current_depth = file_depths.get(filename, 0)
         filepath = Path(filename)
         fname = filepath.parent.name + "/" + filepath.name
         click.echo(f"  Parsing {filename}")
@@ -313,8 +357,21 @@ def iterative_parse(
                     )
                 )
 
-                # Discover and process nested modules
-                if section == "module":
+                # Discover and process nested modules, unless this file is
+                # already at the resolution depth cap (CLO-5901). The module
+                # stanzas above are still recorded; we just stop descending.
+                if section == "module" and current_depth >= max_module_depth:
+                    if not depth_cap_reached:
+                        click.echo(
+                            click.style(
+                                f"    Reached max module resolution depth "
+                                f"({max_module_depth}); not descending into "
+                                f"nested modules.",
+                                fg="yellow",
+                            )
+                        )
+                        depth_cap_reached = True
+                elif section == "module":
                     for mod_dict in hcl_dict[filename]["module"]:
                         module_name = next(iter(mod_dict))
                         modpath = os.path.join(tf_mod_dir, module_name)
@@ -340,10 +397,14 @@ def iterative_parse(
                             version=version_constraint,
                             terraform_modules=terraform_modules,
                         )
-                        existing_files = list(tf_file_paths)
-                        tf_file_paths.extend(
+                        existing_files = set(tf_file_paths)
+                        new_files = [
                             x for x in source_files_list if x not in existing_files
-                        )
+                        ]
+                        tf_file_paths.extend(new_files)
+                        # Files pulled in from this module sit one level deeper.
+                        for new_file in new_files:
+                            file_depths.setdefault(new_file, current_depth + 1)
                         # Store source path for downstream module matching.
                         # Local modules use the resolved absolute path (matches
                         # file paths for resource-to-module association).

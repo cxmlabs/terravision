@@ -8,6 +8,8 @@ sys.path.append(parent_dir)
 
 from modules.fileparser import (
     handle_module,
+    iterative_parse,
+    _default_max_module_depth,
     _load_terraform_modules_json,
 )
 
@@ -133,6 +135,105 @@ class TestLoadTerraformModulesJson(unittest.TestCase):
         self.assertTrue(
             result["git_https_iam_account_ref"].endswith("modules/iam-account")
         )
+
+
+class TestModuleDepthCap(unittest.TestCase):
+    """Tests for the transitive module-resolution depth cap (CLO-5901)."""
+
+    EXTRACT = ["module", "resource"]
+
+    def setUp(self):
+        # Build a tree of nested local modules: root -> a -> b -> c.
+        # Each level declares the next and has its own resource so we can
+        # detect which depths were actually parsed.
+        self._tmpdir = tempfile.TemporaryDirectory()
+        root = self._tmpdir.name
+        self.root_tf = os.path.join(root, "main.tf")
+        with open(self.root_tf, "w") as f:
+            f.write(
+                'module "a" {\n  source = "./a"\n}\n'
+                'resource "null_resource" "root" {}\n'
+            )
+        levels = ["a", "b", "c"]
+        cur = root
+        for i, name in enumerate(levels):
+            cur = os.path.join(cur, name)
+            os.makedirs(cur)
+            child = levels[i + 1] if i + 1 < len(levels) else None
+            body = f'resource "null_resource" "{name}" {{}}\n'
+            if child:
+                body = f'module "{child}" {{\n  source = "./{child}"\n}}\n' + body
+            with open(os.path.join(cur, "main.tf"), "w") as f:
+                f.write(body)
+
+    def tearDown(self):
+        self._tmpdir.cleanup()
+
+    def _parse(self, max_depth):
+        tf_file_paths = [self.root_tf]
+        tfdata = iterative_parse(
+            tf_file_paths,
+            {},
+            self.EXTRACT,
+            {},
+            tf_mod_dir=os.path.join(self._tmpdir.name, ".terraform", "modules"),
+            source_dir=self._tmpdir.name,
+            max_module_depth=max_depth,
+        )
+        parsed = {os.path.basename(os.path.dirname(p)) for p in tf_file_paths}
+        return tfdata, parsed
+
+    def test_depth_zero_skips_all_modules(self):
+        """max_module_depth=0 parses only the root, never descending."""
+        _, parsed = self._parse(0)
+        self.assertNotIn("a", parsed)
+
+    def test_depth_two_caps_transitive_resolution(self):
+        """max_module_depth=2 resolves a and b but stops before c."""
+        _, parsed = self._parse(2)
+        self.assertIn("a", parsed)
+        self.assertIn("b", parsed)
+        self.assertNotIn("c", parsed)
+
+    def test_depth_one_resolves_only_direct_modules(self):
+        """max_module_depth=1 resolves direct modules but not nested ones."""
+        _, parsed = self._parse(1)
+        self.assertIn("a", parsed)
+        self.assertNotIn("b", parsed)
+
+    def test_no_regression_when_tree_within_cap(self):
+        """A tree shallower than the cap is fully resolved (no behavior change)."""
+        _, parsed = self._parse(10)
+        self.assertIn("a", parsed)
+        self.assertIn("b", parsed)
+        self.assertIn("c", parsed)
+
+
+class TestDefaultMaxModuleDepth(unittest.TestCase):
+    """Tests for _default_max_module_depth() env resolution."""
+
+    def setUp(self):
+        self._orig = os.environ.pop("TERRAVISION_MAX_MODULE_DEPTH", None)
+
+    def tearDown(self):
+        os.environ.pop("TERRAVISION_MAX_MODULE_DEPTH", None)
+        if self._orig is not None:
+            os.environ["TERRAVISION_MAX_MODULE_DEPTH"] = self._orig
+
+    def test_default_is_five(self):
+        self.assertEqual(_default_max_module_depth(), 5)
+
+    def test_env_override(self):
+        os.environ["TERRAVISION_MAX_MODULE_DEPTH"] = "3"
+        self.assertEqual(_default_max_module_depth(), 3)
+
+    def test_invalid_env_falls_back_to_default(self):
+        os.environ["TERRAVISION_MAX_MODULE_DEPTH"] = "not-a-number"
+        self.assertEqual(_default_max_module_depth(), 5)
+
+    def test_negative_env_falls_back_to_default(self):
+        os.environ["TERRAVISION_MAX_MODULE_DEPTH"] = "-3"
+        self.assertEqual(_default_max_module_depth(), 5)
 
 
 if __name__ == "__main__":
