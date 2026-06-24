@@ -188,7 +188,7 @@ class TestModuleDepthCap(unittest.TestCase):
         _, parsed = self._parse(0)
         self.assertNotIn("a", parsed)
 
-    def test_default_depth_caps_transitive_resolution(self):
+    def test_depth_two_caps_transitive_resolution(self):
         """max_module_depth=2 resolves a and b but stops before c."""
         _, parsed = self._parse(2)
         self.assertIn("a", parsed)
@@ -220,20 +220,20 @@ class TestDefaultMaxModuleDepth(unittest.TestCase):
         if self._orig is not None:
             os.environ["TERRAVISION_MAX_MODULE_DEPTH"] = self._orig
 
-    def test_default_is_two(self):
-        self.assertEqual(_default_max_module_depth(), 2)
-
-    def test_env_override(self):
-        os.environ["TERRAVISION_MAX_MODULE_DEPTH"] = "5"
+    def test_default_is_five(self):
         self.assertEqual(_default_max_module_depth(), 5)
 
-    def test_invalid_env_falls_back_to_two(self):
-        os.environ["TERRAVISION_MAX_MODULE_DEPTH"] = "not-a-number"
-        self.assertEqual(_default_max_module_depth(), 2)
+    def test_env_override(self):
+        os.environ["TERRAVISION_MAX_MODULE_DEPTH"] = "3"
+        self.assertEqual(_default_max_module_depth(), 3)
 
-    def test_negative_env_falls_back_to_two(self):
+    def test_invalid_env_falls_back_to_default(self):
+        os.environ["TERRAVISION_MAX_MODULE_DEPTH"] = "not-a-number"
+        self.assertEqual(_default_max_module_depth(), 5)
+
+    def test_negative_env_falls_back_to_default(self):
         os.environ["TERRAVISION_MAX_MODULE_DEPTH"] = "-3"
-        self.assertEqual(_default_max_module_depth(), 2)
+        self.assertEqual(_default_max_module_depth(), 5)
 
 
 if __name__ == "__main__":

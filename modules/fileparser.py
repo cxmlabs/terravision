@@ -55,13 +55,20 @@ def _default_max_module_depth() -> int:
     its ~20+ nested submodules) can otherwise exhaust the per-root time budget
     enforced by callers, producing zero resources for the whole root. Capping
     the depth bounds this work. Override via TERRAVISION_MAX_MODULE_DEPTH.
+
+    The default of 5 targets ~95% coverage of real client repos: the effective
+    call depth is roughly "first-party wrapper layers (0-2) + the internal depth
+    of a deep community module (EKS bottoms out at 3 from a direct reference)".
+    Depth 5 clears one to two wrapper layers over such a module while staying out
+    of the 6+ tail (generated/pathological trees), where fan-out cost explodes
+    for no additional coverage.
     """
     raw = os.environ.get("TERRAVISION_MAX_MODULE_DEPTH", "")
     try:
         value = int(raw)
     except (TypeError, ValueError):
-        return 2
-    return value if value >= 0 else 2
+        return 5
+    return value if value >= 0 else 5
 
 
 # Default cap on transitive (nested) module resolution depth (CLO-5901).
