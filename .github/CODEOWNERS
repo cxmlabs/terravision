@@ -1,0 +1,30 @@
+# CODEOWNERS
+#
+# This repository is a fork of patrickchugh/terravision, and it is a production
+# dependency: `cxmlabs/koomo` pins it by commit SHA in
+# src/cxm-memories/repo_graph/pyproject.toml. A change landing on main can reach
+# the application as soon as that pin moves.
+#
+# A git dependency is fetched by commit SHA and never passes through the PyPI
+# index, so it is NOT covered by the 7-day package quarantine koomo applies to
+# indexed packages (`exclude-newer`, CLO-4256). Review here is the compensating
+# control.
+#
+# Available GitHub teams:
+#   @cxmlabs/engineering      — all engineers
+#   @cxmlabs/sre              — SRE
+#
+# Rules are matched bottom-up — the last matching rule wins.
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Default — all engineers
+# ──────────────────────────────────────────────────────────────────────────────
+*                    @cxmlabs/engineering
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Packaging and CI — SRE. These decide what actually ships.
+# ──────────────────────────────────────────────────────────────────────────────
+pyproject.toml       @cxmlabs/sre
+poetry.lock          @cxmlabs/sre
+requirements.txt     @cxmlabs/sre
+.github/             @cxmlabs/sre
